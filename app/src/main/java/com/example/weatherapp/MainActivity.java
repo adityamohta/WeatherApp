@@ -10,11 +10,13 @@ import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.AsyncTask;
 import android.support.v4.app.ActivityCompat;
+import android.support.v4.widget.SwipeRefreshLayout;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.example.weatherapp.Common.Common;
 import com.example.weatherapp.Helper.Helper;
@@ -24,12 +26,14 @@ import com.google.gson.reflect.TypeToken;
 import com.squareup.picasso.Picasso;
 
 import java.lang.reflect.Type;
+import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity implements LocationListener {
 
     private static final String TAG = "MainActivity";
     TextView txtCity, txtLastUpdate, txtDescription, txtHumidity, txtTime, txtCelsius;
     ImageView imageView;
+    SwipeRefreshLayout swipeRefreshLayout;
 
     LocationManager locationManager;
     String provider;
@@ -52,11 +56,19 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         txtTime = (TextView) findViewById(R.id.txtTime);
         txtCelsius = (TextView) findViewById(R.id.txtCelsius);
         imageView = (ImageView) findViewById(R.id.imageView);
+        swipeRefreshLayout = (SwipeRefreshLayout) findViewById(R.id.swipeRefreshLayout);
 
+        swipeRefreshLayout.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
+            @Override
+            public void onRefresh() {
+                fetchData();
+            }
+        });
+        fetchData();
+    }
+
+    void fetchData() {
         // Get Coordinates
-        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
-        provider = locationManager.getBestProvider(new Criteria(), false);
-
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
 
             ActivityCompat.requestPermissions(MainActivity.this, new String[]{
@@ -69,16 +81,24 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
             }, MY_PERMISSION);
             return;
         }
+        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        provider = locationManager.getBestProvider(new Criteria(), false);
         Location location = locationManager.getLastKnownLocation(provider);
 
-        if (location == null)
+        if (location == null) {
             Log.e(TAG, "onCreate: No Location");
+            Toast.makeText(this, "Make Sure you enable location service", Toast.LENGTH_SHORT).show();
+        } else {
+            String url = Common.apiRequest(String.valueOf(lat), String.valueOf(lon));
+            new GetWeather().execute(url);
+        }
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        locationManager.removeUpdates(this);
+        if (locationManager != null)
+            locationManager.removeUpdates(this);
     }
 
     @Override
@@ -93,8 +113,10 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
                     Manifest.permission.SYSTEM_ALERT_WINDOW,
                     Manifest.permission.WRITE_EXTERNAL_STORAGE
             }, MY_PERMISSION);
+            return;
         }
-        locationManager.requestLocationUpdates(provider, 400, 1, this);
+        if (locationManager != null)
+            locationManager.requestLocationUpdates(provider, 400, 1, this);
     }
 
     @Override
@@ -102,10 +124,8 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         lat = location.getLatitude();
         lon = location.getLongitude();
 
-        String url = Common.apiRequest(String.valueOf(lat), String.valueOf(lon));
-        Log.d(TAG, "onLocationChanged: " + url);
-        new GetWeather().execute(url);
-
+        Log.d(TAG, "onLocationChanged: " + lat + " and " + lon);
+        fetchData();
     }
 
     @Override
@@ -146,20 +166,23 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
             openWeatherMap = gson.fromJson(s, mType);
             progressDialog.dismiss();
 
+            Log.d(TAG, "onPostExecute: " + openWeatherMap.getMain().getHumidity());
             txtCity.setText(String.format("%s, %s", openWeatherMap.getName(), openWeatherMap.getSys().getCountry()));
             txtLastUpdate.setText(String.format("Last Updated at: %s", Common.getDateNow()));
             txtDescription.setText(String.format("%s", openWeatherMap.getWeather().get(0).getDescription()));
-            txtHumidity.setText(String.format("%d%%", openWeatherMap.getMain().getHumidity()));
+            txtHumidity.setText(String.format(Locale.ENGLISH, "%d%%", openWeatherMap.getMain().getHumidity()));
+
             txtTime.setText(String.format(
                     "%s/%s",
                     Common.unixTimeStampToDateTime(openWeatherMap.getSys().getSunrise()),
                     Common.unixTimeStampToDateTime(openWeatherMap.getSys().getSunset())
             ));
-            txtCelsius.setText(String.format("%.2f 'C", openWeatherMap.getMain().getTemp()));
+            txtCelsius.setText(String.format(Locale.ENGLISH, "%.2f 'C", openWeatherMap.getMain().getTemp()));
 
             Picasso.with(MainActivity.this)
                     .load(Common.getImage(openWeatherMap.getWeather().get(0).getIcon()))
                     .into(imageView);
+            swipeRefreshLayout.setRefreshing(false);
         }
 
         @Override
